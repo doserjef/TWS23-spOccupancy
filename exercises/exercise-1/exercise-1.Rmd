@@ -1,0 +1,267 @@
+---
+title: "Exercise 1: Amphibian occupancy in the fragmented Brazilian Atlantic Forest"
+author: "Jeffrey W. Doser and Elise F. Zipkin"
+date: "November 9, 2023"
+output: html_document
+bibliography: [references.bib]
+biblio-style: apalike
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA)
+```
+
+\newcommand{\bm}{\boldsymbol}
+
+## Introduction
+
+In this exercise, we will use single-species nonspatial and spatial occupancy models to explore the effects of agriculture and topography on a tropical amphibian species *Crossodactylus caramaschii* in the fragmented Brazilian Atlantic Forest. These data come from @ribeiro2018effects, in which the authors used a multi-species occupancy model to quantify effects of agriculture and topography for a community of tropical amphibians. Here we will use data from a single species, *Crossodactylus caramaschii*, and will compare a series of different single-species occupancy models in their ability to explain spatial variation in where the species occurs across the fragmented landscape.
+
+We first load `spOccupancy` as well as a few other packages we will use for summarizing model output and generating visualizations. We also set the seed so we can all get the same exact results.
+
+```{r}
+set.seed(111)
+library(spOccupancy)
+library(MCMCvis)
+library(ggplot2)
+library(sf)
+# If not using the RStudio project, set working directory to the repository
+# directory.
+# setwd("../")
+```
+
+## 1. Data prep and exploratory data analysis
+
+The data are stored in an R data file object called `amphibian-data.rda`. We load this object below, which reads in a list called `data.crocar`.
+
+```{r}
+load("amphibian-data.rda")
+# Check out the structure of the list
+str(data.crocar)
+```
+
+The `data.crocar` object is stored in the exact format required for fitting single-species occupancy models in `spOccupancy`. The list is comprised of four objects: 
+
+1. `y`: the detection-nondetection. This is a matrix or data frame of the detection-nondetection data where the rows correspond to sites and the columns correspond to visits. Note that for imbalanced data sets where each site may not have the same number of visits, `NA` values should be placed in those site/visit combinations without any data. 
+2. `occ.covs`: the covariates for use in the occupancy portion of the model. This is a data frame or matrix of covariates, with each row corresponding to a site, and each column corresponding to a different variable. 
+3. `det.covs`: the covariates for use in the detection portion of the model. This is a list, where each element of the list corresponds to a different covariate. Covariates on detection can be either site-level or observation-level. For site-level covariates, they should be specified as a vector with length equal to the total number of sites in the data set. For observation-level covariates, they should be specified as a matrix with rows corresponding to sites and columns corresponding to visit. Here we have two observation-level covariates.
+4. `coords`: the spatial coordinates of the sites. This is a matrix with rows corresponding to sites and two columns corresponding to the easting and northing coordinates of each given location. Note that `spOccupancy` assumes the coordinates are in a projected coordinate system (i.e., not latitude/longitude).
+
+To get an initial sense of how common our species is, below we generate an exploratory plot showing the locations across the landscape where the species was detected at least once. 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# 1 if species was ever detected, 0 if not
+y.max <- apply(data.crocar$y, 1, max, na.rm = TRUE)
+plot.df <- data.frame(val = y.max,
+		      x = data.crocar$coords[, 1],
+		      y = data.crocar$coords[, 2])
+# Convert value to factor
+plot.df$val <- factor(ifelse(plot.df$val == 1, 'Observed', 'Not Observed'))
+plot.sf <- st_as_sf(plot.df, 
+		    coords = c('x', 'y'), 
+                    crs = 29101)
+ggplot() +
+  geom_sf(data = plot.sf, aes(col = val)) +
+  scale_color_viridis_d() +
+  theme_bw(base_size = 15) +
+  labs(x = "Longitude", y = "Latitude", col = "")
+```
+
+We see *Crossodactylus caramaschii* is detected primarily in the western portion of the study area.
+
+## 2a. Fitting non-spatial occupancy models
+
+Now that the data are formatted in the necessary format for use with `spOccupancy`, we are now set to start fitting some models. The function to fit a non-spatial single-species occupancy model is `PGOcc()`. The manual page for `PGOcc()` provides details on the different function arguments. Below we fit an occupancy model with two covariates in our model for occupancy, and three covariates in our model for detection probability. Note the use of the `scale()` function directly in the model formulas, which will standardize each covariate to have a mean of 0 and standard deviation of 1 when fitting the model. We often recommend standardizing variables when fitting models, as it can often be essential for adequate convergence of the MCMC algorithms. 
+
+```{r}
+# Fit a non-spatial, single-species occupancy model.
+out.0 <- PGOcc(occ.formula = ~ scale(forest) + scale(density),
+               det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+               data = data.crocar,
+               n.samples = 10000,
+               n.thin = 5,
+	       verbose = TRUE,
+               n.burn = 5000,
+               n.chains = 3,
+               n.report = 2000)
+# Quick summary of the model results.
+summary(out.0)
+```
+
+Notice in the above model output, we get messages that we did not specify any prior distributions or initial values for the parameters in our model. By default, `spOccupancy` will assign vague normal prior distributions for the occurrence and detection regression coefficients. The algorithm that `spOccupancy` uses underneath the hood requires us to use normal prior distributions for the regression coefficients. We can specify the values of the prior distribution using the `priors` argument. We can additionally specify initial values for the occurrence (`beta`) and detection (`alpha`) regression coefficients, as well as the latent occupancy values (`z`) in the `inits` argument. In the following code chunk, we explicitly specify the prior distributions and initial values, then rerun the model with these arguments.
+
+```{r}
+# Prior distributions
+priors <- list(beta.normal = list(mean = 0, var = 2.72),
+	       alpha.normal = list(mean = 0, var = 2.72))
+# Initial values
+inits <- list(beta = 0, alpha = 0, z = apply(data.crocar$y, 1, max, na.rm = TRUE)) 
+# Refit the model with explicit specification of priors and inits
+out.1 <- PGOcc(occ.formula = ~ scale(forest) + scale(density),
+               det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+               data = data.crocar,
+	       priors = priors, 
+	       inits = inits,
+               n.samples = 10000,
+               n.thin = 5,
+	       verbose = TRUE,
+               n.burn = 5000,
+               n.chains = 3,
+               n.report = 2000)
+# Summary
+summary(out.1)
+```
+
+The model output provides a summary of the occurrence and detection parameters, as well as information on convergence diagnostics. Here, we see all Rhat values are less than 1.1 and all ESS values are quite large, indicating adequate convergence and mixing of the MCMC chains. We see a strong negative effect of forest cover on occurrence probability, as well as a positive effect of stream density. 
+
+We next will fit an alternative model that assumes occupancy probability is constant across the 50 locations to compare with our previous model. 
+
+```{r}
+# Fit model assuming constant occupancy probability
+# Note that verbose = FALSE to hide printed model progress
+out.2 <- PGOcc(occ.formula = ~ 1,
+               det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+               data = data.crocar,
+	       priors = priors, 
+	       inits = inits,
+               n.samples = 10000,
+               n.thin = 5,
+	       verbose = FALSE,
+               n.burn = 5000,
+               n.chains = 3,
+               n.report = 2000)
+# Check convergence
+summary(out.2)
+```
+
+`spOccupancy` provides two approaches for model comparison: the Widely Applicable Information Criterion (WAIC) and k-fold cross-validation. Model comparison using WAIC is accomplished using the `waicOcc()` function.
+
+```{r}
+# WAIC for the model with occupancy covariates
+waicOcc(out.1)
+# WAIC for the model without occupancy covariates
+waicOcc(out.2)
+```
+
+Model comparison usng WAIC is similar to classical model comparision using AIC: the lower the value the better. Here we see the WAIC for the model with forest cover and stream density has a lower WAIC, providing evidence that occupancy probability is not constant across the 50 sites. 
+
+K-fold cross-validation is accomplished using the argument `k.fold` in `PGOcc()`. This can be done either directly when fitting the model, or can be done separately by specifying `k.fold.only = TRUE`. Below, we perform four-fold cross-validation for both models. We use the `k.fold.threads` argument to do this in parallel across 4 threads.
+
+```{r}
+k.fold.1 <- PGOcc(occ.formula = ~ scale(forest) + scale(density),
+               det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+               data = data.crocar,
+	       priors = priors, 
+	       inits = inits,
+               n.samples = 10000,
+               n.thin = 5,
+	       verbose = TRUE,
+               n.burn = 5000,
+               n.chains = 3,
+               n.report = 2000, 
+               k.fold = 4, 
+               k.fold.threads = 4,
+               k.fold.only = TRUE)
+k.fold.2 <- PGOcc(occ.formula = ~ 1,
+                  det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+                  data = data.crocar,
+	          priors = priors, 
+	          inits = inits,
+                  n.samples = 10000,
+                  n.thin = 5,
+	          verbose = FALSE,
+                  n.burn = 5000,
+                  n.chains = 3,
+                  n.report = 2000, 
+                  k.fold = 4, 
+                  k.fold.threads = 4,
+                  k.fold.only = TRUE)
+# Model with occupancy covariates
+k.fold.1$k.fold.deviance
+# Model without occupancy covariates
+k.fold.2$k.fold.deviance
+```
+
+TODO: get the initial lecture deck set for everything up to this point, then walk through the spatial model below. 
+
+## 2b: Fitting spatial occupancy models
+
+Next we fit two spatial occupancy models: one that does not include any covariates on occupancy probability and the other that includes the five covariates on occupancy probability. Note that a spatial occupancy model with no covariates on occupancy probability allows occupancy probability to vary smoothly across space only in relation to the spatial random effects. Comparing this model to a spatial occupancy model with covariates can shed good insight on the importance of the covariates in explaining spatial variability in occupancy probability. 
+
+The function to fit spatial occupancy models in `spOccupancy` is `spPGOcc()`. When fitting spatial occupancy models  
+
+# Fit a spatial, single-species occupancy model.
+out.sp <- spPGOcc(occ.formula = ~ scale(forest) + scale(agriculture) +
+	                                scale(catchment) + scale(density) +
+	                                scale(slope),
+                  det.formula = ~ scale(date) + I(scale(date)^2) + scale(rain),
+	                data = data.crocar,
+		              n.batch = 400,
+		              batch.length = 25,
+	                n.thin = 5,
+	                n.burn = 5000,
+	                n.chains = 3,
+	                n.report = 100)
+summary(out.sp)
+
+# 3. Model validation -----------------------------------------------------
+# Perform a posterior predictive check to assess model fit.
+ppc.out <- ppcOcc(out, fit.stat = 'freeman-tukey', group = 1)
+ppc.out.sp <- ppcOcc(out.sp, fit.stat = 'freeman-tukey', group = 1)
+# Calculate a Bayesian p-value as a simple measure of Goodness of Fit.
+# Bayesian p-values between 0.1 and 0.9 indicate adequate model fit.
+summary(ppc.out)
+summary(ppc.out.sp)
+
+# 4. Model comparison -----------------------------------------------------
+# Compute Widely Applicable Information Criterion (WAIC)
+# Lower values indicate better model fit.
+waicOcc(out)
+waicOcc(out.sp)
+
+# 5. Posterior summaries --------------------------------------------------
+# Concise summary of main parameter estimates
+summary(out)
+# Take a look at objects in resulting object
+names(out)
+str(out$beta.samples)
+# Probability the effect of stream density on occupancy is positive
+mean(out$beta.samples[, 5] > 0)
+# Create simple plot summaries using MCMCvis package.
+# Occupancy covariate effects ---------
+MCMCplot(out$beta.samples, ref_ovl = TRUE, ci = c(50, 95))
+# Detection covariate effects ---------
+MCMCplot(out$alpha.samples, ref_ovl = TRUE, ci = c(50, 95))
+
+# 6. Prediction -----------------------------------------------------------
+# Predict occupancy along a gradient of forest cover.
+# Create a set of values across the range of observed forest values
+forest.pred.vals <- seq(min(data.crocar$occ.covs$forest),
+			                  max(data.crocar$occ.covs$forest),
+			                  length.out = 100)
+
+# Scale predicted values by mean and standard deviation used to fit the model
+forest.pred.vals.scale <- (forest.pred.vals - mean(data.crocar$occ.covs$forest)) /
+	                         sd(data.crocar$occ.covs$forest)
+# Predict occupancy across forest values at mean values of all other variables
+pred.df <- as.matrix(data.frame(intercept = 1, forest = forest.pred.vals.scale,
+		                 agriculture = 0, catchment = 0, density = 0,
+		                 slope = 0))
+out.pred <- predict(out, pred.df)
+str(out.pred)
+psi.0.quants <- apply(out.pred$psi.0.samples, 2, quantile,
+		                  prob = c(0.025, 0.5, 0.975))
+psi.plot.dat <- data.frame(psi.med = psi.0.quants[2, ],
+			                     psi.low = psi.0.quants[1, ],
+			                     psi.high = psi.0.quants[3, ],
+                           forest = forest.pred.vals)
+ggplot(psi.plot.dat, aes(x = forest, y = psi.med)) +
+  geom_ribbon(aes(ymin = psi.low, ymax = psi.high), fill = 'grey70') +
+  geom_line() +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = 'Forest (% cover)', y = 'Occupancy Probability')
+```
+
+
+# References {-}

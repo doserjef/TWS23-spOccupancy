@@ -1,0 +1,57 @@
+---
+title: "Spatially-explicit occupancy modeling with the spOccupancy R package"
+author:
+  - "Dr. Jeffrey W. Doser<br>Dr. Elise F. Zipkin<br>Michigan State University, East Lansing, Michigan"
+date: "Workshop date: November 9, 2023"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+## Course description
+
+We will present an accessible overview of single-species, multi-species, and integrated spatially-explicit occupancy modeling with a focus on implementing these models using the spOccupancy R package. Emphasis will be placed on practical software tools rather than statistical details. Basic proficiency in R and generalized linear models is a prerequesite.
+
+********
+## Prior to the workshop getting started
+
+This workshop offers lecture, discussion, and hands-on exercises . We encourage you to work along with us on the exercises. To participate fully in the exercises, you'll need a recent version of R ($\geqslant$ 4.2). 
+
+### Installing *spOccupancy*
+
+The course will focus on using the `spOccupancy` package to fit spatial occupancy models. `spOccupancy`
+can be installed from CRAN using `install.packages('spOccupancy')`. Note we will be using some recent functionality incorporated into `spOccupancy`, so please re-install `spOccupancy` if you have installed it prior to November 1, 2023. 
+
+### Installing additional R packages
+
+In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, we encourage you to install the packages below if you do not have them. The code below can be run in R to only install those packages that don't currently exist on your system.
+
+```{r, eval = FALSE}
+required.packages <- c('coda', 'MCMCvis', 'ggplot2', 'pals', 'sf', 'maps', 'stars')
+new.packages <- required.packages[!(required.packages %in% installed.packages()[, 'Package'])]
+if (length(new.packages) > 0) {
+  install.packages(new.packages)
+}
+```
+
+
+## Course schedule (download full zip on [the course Github page](https://github.com/doserjef/TWS23-spOccupancy))
+
+[Full PDF of all course slides]()
+
+* 8:00 - 9:30AM Introduction to occupancy modeling
+  * Single-species occupancy models
+  * Single-species spatial occupancy models
+  * Brief primer on Bayesian analysis using MCMC
+  * Exercise 1: Amphibian occupancy in the fragmented Brazilian Atlantic Forest
+* 9:30AM - 9:40AM Break/Q&A
+* 9:40AM - 10:40AM Multi-species occupancy modeling 
+  * Multi-species occupancy models
+  * Spatial multi-species occupancy models
+  * Exercise 2: Breeding bird distributions across Switzerland
+* 10:40AM - 10:50AM: Break/Q&A
+* 10:50AM - 11:50AM: Multiseason spatial occupancy modeling
+  * Multi-season spatial occupancy models
+  * Exercise 3: Trends in Wood Thrush occupancy across the eastern US
+* 11:50AM - 12:00PM: Wrap up and Q&A
