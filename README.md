@@ -2,6 +2,6 @@
 
 ### Jeffrey W. Doser and Elise F. Zipkin
 
-### [Workshop Website](https://doserjef.github.io/TWS-spOccupancy/)
+### [Workshop Website](https://doserjef.github.io/TWS23-spOccupancy/)
 
 ### The Wildlife Society Annual Conference 2023
