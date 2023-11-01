@@ -10,7 +10,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<meta name="author" content="Dr. Jeffrey W. Doser Dr. Elise F. Zipkin Michigan State University, East Lansing, Michigan" />
+<meta name="author" content="Dr. Jeffrey W. Doser Dr. Elise F. Zipkin Michigan State University The Wildlife Society Conference 2023" />
 
 
 <title>Spatially-explicit occupancy modeling with the spOccupancy R package</title>
@@ -165,7 +165,7 @@ code span.ot { color: #007020; }
 
 <section class="page-header">
 <h1 class="title toc-ignore project-name">Spatially-explicit occupancy modeling with the spOccupancy R package</h1>
-<h4 class="author project-author">Dr. Jeffrey W. Doser<br>Dr. Elise F. Zipkin<br>Michigan State University, East Lansing, Michigan</h4>
+<h4 class="author project-author">Dr. Jeffrey W. Doser<br>Dr. Elise F. Zipkin<br>Michigan State University<br>The Wildlife Society Conference 2023</h4>
 <h4 class="date project-date">Workshop date: November 9, 2023</h4>
 </section>
 
@@ -179,15 +179,15 @@ code span.ot { color: #007020; }
 </div>
 <div id="prior-to-the-workshop-getting-started" class="section level2">
 <h2>Prior to the workshop getting started</h2>
-<p>This workshop offers lecture, discussion, and hands-on exercises . We encourage you to work along with us on the exercises. To participate fully in the exercises, you’ll need a recent version of R (<span class="math inline">\(\geqslant\)</span> 4.2).</p>
+<p>This workshop offers lecture, discussion, and hands-on exercises. We strongly encourage you to work along with us on the exercises. To participate fully in the exercises, you’ll need a fairly recent version of R (<span class="math inline">\(\geqslant\)</span> 3.5).</p>
 <div id="installing-spoccupancy" class="section level3">
 <h3>Installing <em>spOccupancy</em></h3>
-<p>The course will focus on using the <code>spOccupancy</code> package to fit spatial occupancy models. <code>spOccupancy</code> can be installed from CRAN using <code>install.packages(&#39;spOccupancy&#39;)</code>. Note we will be using some recent functionality incorporated into <code>spOccupancy</code>, so please re-install <code>spOccupancy</code> if you have installed it prior to November 1, 2023.</p>
+<p>The course will focus on using the <code>spOccupancy</code> package to fit spatial occupancy models. <code>spOccupancy</code> can be installed from CRAN using <code>install.packages(&#39;spOccupancy&#39;)</code>. Note we will be using some recent functionality incorporated into <code>spOccupancy</code> v0.7.2, so please re-install <code>spOccupancy</code> if you have installed it prior to November 1, 2023.</p>
 </div>
 <div id="installing-additional-r-packages" class="section level3">
 <h3>Installing additional R packages</h3>
-<p>In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, we encourage you to install the packages below if you do not have them. The code below can be run in R to only install those packages that don’t currently exist on your system.</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a>required.packages &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">&#39;coda&#39;</span>, <span class="st">&#39;MCMCvis&#39;</span>, <span class="st">&#39;ggplot2&#39;</span>, <span class="st">&#39;pals&#39;</span>, <span class="st">&#39;sf&#39;</span>, <span class="st">&#39;maps&#39;</span>, <span class="st">&#39;stars&#39;</span>)</span>
+<p>In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, you will need to install the packages below if you do not have them. The code below can be run in R to only install those packages that don’t currently exist on your system.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a>required.packages &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">&#39;MCMCvis&#39;</span>, <span class="st">&#39;ggplot2&#39;</span>, <span class="st">&#39;pals&#39;</span>, <span class="st">&#39;sf&#39;</span>, <span class="st">&#39;maps&#39;</span>, <span class="st">&#39;stars&#39;</span>)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a>new.packages &lt;-<span class="st"> </span>required.packages[<span class="op">!</span>(required.packages <span class="op">%in%</span><span class="st"> </span><span class="kw">installed.packages</span>()[, <span class="st">&#39;Package&#39;</span>])]</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true"></a><span class="cf">if</span> (<span class="kw">length</span>(new.packages) <span class="op">&gt;</span><span class="st"> </span><span class="dv">0</span>) {</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true"></a>  <span class="kw">install.packages</span>(new.packages)</span>
@@ -196,24 +196,24 @@ code span.ot { color: #007020; }
 </div>
 <div id="course-schedule-download-full-zip-on-the-course-github-page" class="section level2">
 <h2>Course schedule (download full zip on <a href="https://github.com/doserjef/TWS23-spOccupancy">the course Github page</a>)</h2>
-<p><a href>Full PDF of all course slides</a></p>
+<p><a href="https://github.com/doserjef/TWS23-spOccupancy/blob/main/lecture-slides.pdf">Full PDF of all course slides</a></p>
 <ul>
-<li>8:00 - 9:30AM Introduction to occupancy modeling
+<li>8:00 - 9:45AM Introduction to occupancy modeling
 <ul>
 <li>Single-species occupancy models</li>
 <li>Single-species spatial occupancy models</li>
 <li>Brief primer on Bayesian analysis using MCMC</li>
 <li>Exercise 1: Amphibian occupancy in the fragmented Brazilian Atlantic Forest</li>
 </ul></li>
-<li>9:30AM - 9:40AM Break/Q&amp;A</li>
-<li>9:40AM - 10:40AM Multi-species occupancy modeling
+<li>9:45AM - 10:00AM Break/Q&amp;A</li>
+<li>10:00AM - 11:00AM Multi-species occupancy modeling
 <ul>
 <li>Multi-species occupancy models</li>
 <li>Spatial multi-species occupancy models</li>
 <li>Exercise 2: Breeding bird distributions across Switzerland</li>
 </ul></li>
-<li>10:40AM - 10:50AM: Break/Q&amp;A</li>
-<li>10:50AM - 11:50AM: Multiseason spatial occupancy modeling
+<li>11:00AM - 11:10AM: Break/Q&amp;A</li>
+<li>11:10AM - 11:50AM: Multiseason spatial occupancy modeling
 <ul>
 <li>Multi-season spatial occupancy models</li>
 <li>Exercise 3: Trends in Wood Thrush occupancy across the eastern US</li>

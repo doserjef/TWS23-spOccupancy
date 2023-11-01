@@ -1,7 +1,7 @@
 ---
 title: "Spatially-explicit occupancy modeling with the spOccupancy R package"
 author:
-  - "Dr. Jeffrey W. Doser<br>Dr. Elise F. Zipkin<br>Michigan State University, East Lansing, Michigan"
+  - "Dr. Jeffrey W. Doser<br>Dr. Elise F. Zipkin<br>Michigan State University<br>The Wildlife Society Conference 2023"
 date: "Workshop date: November 9, 2023"
 output:
   prettydoc::html_pretty:
@@ -16,19 +16,19 @@ We will present an accessible overview of single-species, multi-species, and int
 ********
 ## Prior to the workshop getting started
 
-This workshop offers lecture, discussion, and hands-on exercises . We encourage you to work along with us on the exercises. To participate fully in the exercises, you'll need a recent version of R ($\geqslant$ 4.2). 
+This workshop offers lecture, discussion, and hands-on exercises. We strongly encourage you to work along with us on the exercises. To participate fully in the exercises, you'll need a fairly recent version of R ($\geqslant$ 3.5). 
 
 ### Installing *spOccupancy*
 
 The course will focus on using the `spOccupancy` package to fit spatial occupancy models. `spOccupancy`
-can be installed from CRAN using `install.packages('spOccupancy')`. Note we will be using some recent functionality incorporated into `spOccupancy`, so please re-install `spOccupancy` if you have installed it prior to November 1, 2023. 
+can be installed from CRAN using `install.packages('spOccupancy')`. Note we will be using some recent functionality incorporated into `spOccupancy` v0.7.2, so please re-install `spOccupancy` if you have installed it prior to November 1, 2023. 
 
 ### Installing additional R packages
 
-In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, we encourage you to install the packages below if you do not have them. The code below can be run in R to only install those packages that don't currently exist on your system.
+In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, you will need to install the packages below if you do not have them. The code below can be run in R to only install those packages that don't currently exist on your system.
 
 ```{r, eval = FALSE}
-required.packages <- c('coda', 'MCMCvis', 'ggplot2', 'pals', 'sf', 'maps', 'stars')
+required.packages <- c('MCMCvis', 'ggplot2', 'pals', 'sf', 'maps', 'stars')
 new.packages <- required.packages[!(required.packages %in% installed.packages()[, 'Package'])]
 if (length(new.packages) > 0) {
   install.packages(new.packages)
@@ -38,20 +38,20 @@ if (length(new.packages) > 0) {
 
 ## Course schedule (download full zip on [the course Github page](https://github.com/doserjef/TWS23-spOccupancy))
 
-[Full PDF of all course slides]()
+[Full PDF of all course slides](https://github.com/doserjef/TWS23-spOccupancy/blob/main/lecture-slides.pdf)
 
-* 8:00 - 9:30AM Introduction to occupancy modeling
+* 8:00 - 9:45AM Introduction to occupancy modeling
   * Single-species occupancy models
   * Single-species spatial occupancy models
   * Brief primer on Bayesian analysis using MCMC
   * Exercise 1: Amphibian occupancy in the fragmented Brazilian Atlantic Forest
-* 9:30AM - 9:40AM Break/Q&A
-* 9:40AM - 10:40AM Multi-species occupancy modeling 
+* 9:45AM - 10:00AM Break/Q&A
+* 10:00AM - 11:00AM Multi-species occupancy modeling 
   * Multi-species occupancy models
   * Spatial multi-species occupancy models
   * Exercise 2: Breeding bird distributions across Switzerland
-* 10:40AM - 10:50AM: Break/Q&A
-* 10:50AM - 11:50AM: Multiseason spatial occupancy modeling
+* 11:00AM - 11:10AM: Break/Q&A
+* 11:10AM - 11:50AM: Multiseason spatial occupancy modeling
   * Multi-season spatial occupancy models
   * Exercise 3: Trends in Wood Thrush occupancy across the eastern US
 * 11:50AM - 12:00PM: Wrap up and Q&A

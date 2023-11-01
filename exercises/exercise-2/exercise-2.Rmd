@@ -1,0 +1,480 @@
+---
+title: "Exercise 2: Swiss Breeding Bird Distributions"
+author: "Jeffrey W. Doser and Elise F. Zipkin"
+date: "November 9, 2023"
+output: html_document
+bibliography: [references.bib]
+biblio-style: apalike
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA, cache = TRUE)
+```
+
+\newcommand{\bm}{\boldsymbol}
+
+## Introduction
+
+In this exercise, we will use multi-species spatial and nonspatial occupancy models to model the distributions of 10 passerine (songbird) species across Switzerland. These data come from the Switzerland Breeding Bird Survey (Swiss MHB) in 2014. Bird abundance data were obtained at 267 1km squares across Switzerland and were simplified to detection-nondetection data for occupancy modeling. The data come from the [Swiss Ornithological Institute](https://www.vogelwarte.ch/en/home/) and were obtained via the R packages [AHMbook](https://github.com/mikemeredith/AHMbook) and [`unmarked`](https://cran.r-project.org/web/packages/unmarked/vignettes/unmarked.html). The covariate data come from the [Swiss Federal Statistical Office](https://www.bfs.admin.ch/bfs/en/home.html). More information on these data can be found in the [Applied Hierarchical Modeling books](https://www.mbr-pwrc.usgs.gov/pubanalysis/keryroylebook/) 
+
+We first load `spOccupancy` as well as a few other packages we will use for summarizing model output and generating visualizations. We also set the seed so we can all get the same exact results.
+
+```{r}
+set.seed(500)
+library(spOccupancy)
+library(MCMCvis)
+library(ggplot2)
+library(pals)
+library(sf)
+# If not using the RStudio project, set working directory to the exercise-2 directory 
+# directory.
+```
+
+## Data prep and exploratory data analysis
+
+The data are stored in an R data file object called `swiss-mhb-2014-data.rda`. We load this object below, which reads in a list called `data.swiss.mhb`.
+
+```{r}
+load("swiss-mhb-2014-data.rda")
+# Check out the structure of the list
+str(data.swiss.mhb)
+```
+
+The `data.swiss.mhb` object is stored in the exact format required for fitting multi-species occupancy models in `spOccupancy`. The list is comprised of four objects, which are identical to those we saw with single-species occupancy models in Exercise 1, with the only change in the format of the detection-nondetection data `y`: 
+
+1. `y`: the detection-nondetection data. This is a three-dimensional array where the first dimension corresponds to species, second dimension corresponds to sites, and the third dimension corresponds to visits. Note that for imbalanced data sets where each site may not have the same number of visits, `NA` values should be placed in those site/visit combinations without any data. `spOccupancy` assumes the same pattern of missing values across all species. Here we are working with a set of 10 passerine species that is a random subset of the species analyzed in @tobler2019joint. 
+2. `occ.covs`: the covariates for use in the occupancy portion of the model. This is a data frame or matrix of covariates, with each row corresponding to a site, and each column corresponding to a different variable. Here we see two covariates: elevation (the mean elevation of the 1km cell) and percent forest cover within the 1km cell.
+3. `det.covs`: the covariates for use in the detection portion of the model. This is a list, where each element of the list corresponds to a different covariate. Covariates on detection can be either site-level or observation-level. For site-level covariates, they should be specified as a vector with length equal to the total number of sites in the data set. For observation-level covariates, they should be specified as a matrix with rows corresponding to sites and columns corresponding to visit. Here we have two observation-level covariates: the Julian date of the survey and the duration in minutes the survey took place.
+4. `coords`: the spatial coordinates of the sites. This is a matrix with rows corresponding to sites and two columns corresponding to the easting and northing coordinates of each given location. Note that `spOccupancy` assumes the coordinates are in a projected coordinate system (i.e., not latitude/longitude). The `coords` component is only required for spatially-explicit models in `spOccupancy`.
+
+Below we generate a simple plot that shows the total number of the potential 10 species detected at each of the 267 sites. We also generate a simple scatter plot showing the relationship between observed richness and the two occupancy covariates in our model (elevation and forest cover). 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# 1 if a given species was ever observed across the 3 replicates, 0 if not
+y.max.by.sp <- apply(data.swiss.mhb$y, c(1, 2), max, na.rm = TRUE)
+# "Naive" species richness
+raw.richness <- apply(y.max.by.sp, 2, sum)
+plot.df <- data.frame(val = raw.richness,
+                      x = data.swiss.mhb$coords[, 1],
+                      y = data.swiss.mhb$coords[, 2])
+plot.sf <- st_as_sf(plot.df, 
+                    coords = c('x', 'y'), 
+                    crs = "+proj=somerc +lat_0=46.95240555555556 +lon_0=7.439583333333333
+                           +k_0=1 +x_0=600000 +y_0=200000 +ellps=bessel
+                           +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs")
+# Map of observed species richness
+ggplot() +
+  geom_sf(data = plot.sf, aes(col = val), size = 2) +
+  scale_color_viridis_c() +
+  theme_bw(base_size = 15) +
+  labs(x = "Longitude", y = "Latitude", col = "Observed\nRichness")
+# Plot of forest cover vs. observed richness
+plot(data.swiss.mhb$occ.covs$forest, raw.richness, pch = 19, 
+     xlab = 'Forest Cover (%)', ylab = 'Observed Richness', 
+     ylim = c(0, nrow(data.swiss.mhb$y)))
+# Plot of elevation vs. observed richness
+plot(data.swiss.mhb$occ.covs$elevation, raw.richness, pch = 19, 
+     xlab = 'Elevation (%)', ylab = 'Observed Richness', 
+     ylim = c(0, nrow(data.swiss.mhb$y)))
+```
+
+## Multi-species occupancy model
+
+The function to fit a non-spatial multi-species occupancy model is `msPGOcc()`. Here we will fit a multi-species occupancy model with linear and quadratic effects of forest cover and elevation on occupancy, as well as a linear effect of survey duration and linear and quadartic effect of survey date on detection probability. As we did in Exercise 1, we will use the `scale()` function when fitting the model to standardize all covariates to have a mean of 0 and standard deviation of 1.
+
+The complete statistical model we will fit is shown below. 
+
+\begin{aligned}
+  y_{i, j, k} &\sim \text{Bernoulli}(z_{i, j} \cdot p_{i, j, k}) \\
+  \text{logit}(p_{i, j, k}) &= \alpha_{0, i} + \alpha_{1, i} \cdot \text{DATE}_{j, k} + \alpha_{2, i} \cdot \text{DATE}^2_{j, k} + \alpha_{3, i} \cdot \text{DURATION}_{j, k} \\
+  z_{i, j} &\sim \text{Bernoulli}(\psi_{i, j}) \\
+  \text{logit}(\psi_{i, j}) &= \beta_{0, i} + \beta_{1, i} \cdot \text{FOREST}_j + \beta_{2, i} \cdot \text{FOREST}^2 + \beta_{3, i} \cdot \text{ELEV}_j + \beta_{4, i} \cdot \text{ELEV}^2 \\
+  \beta_{r, i} &\sim \text{Normal}(\mu_{\beta_r}, \tau^2_{\beta_r}) \\
+  \alpha_{r, i} &\sim \text{Normal}(\mu_{\alpha_r}, \tau^2_{\alpha_r}) \\
+  \mu_{\beta_r} &\sim \text{Normal}(0, 2.72) \\
+  \mu_{\alpha_r} &\sim \text{Normal}(0, 2.72) \\
+  \tau^2_{\beta_r} &\sim \text{Inverse-Gamma}(0.1, 0.1) \\
+  \tau^2_{\alpha_r} &\sim \text{Inverse-Gamma}(0.1, 0.1) \\
+\end{aligned}
+
+```{r}
+# Approx run time: < 2 min
+out.msPGOcc <- msPGOcc(occ.formula = ~ scale(forest) + I(scale(forest)^2) + 
+                                       scale(elevation) + I(scale(elevation)^2),
+                       det.formula = ~ scale(date) + I(scale(date)^2) + 
+                                       scale(dur),
+                       data = data.swiss.mhb, 
+                       n.samples = 10000,
+                       n.thin = 5,
+                       verbose = TRUE,
+                       n.burn = 5000,
+                       n.chains = 3,
+                       n.report = 2000)
+```
+
+We see a lot of messages in the "Preparing to run the model" section that tell us the default priors and initial values that are used when fitting the model, since we did not explicitly specify them ourselves. For multi-species occupancy models, we can set priors for the community-level mean (`beta.comm` and `alpha.comm`) and variance parameters (`tau.sq.beta` and `tau.sq.alpha`). For the mean parameters, we use normal (Gaussian) priors, while for the variance parameters, we use inverse-Gamma priors.
+
+```{r}
+# These are the default priors used in spOccupancy.
+priors <- list(beta.comm.normal = list(mean = 0, var = 2.72), 
+               alpha.comm.normal = list(mean = 0, var = 2.72),
+               tau.sq.beta.ig = list(a = 0.1, b = 0.1),
+               tau.sq.alpha.ig = list(a = 0.1, b = 0.1))
+```
+
+Initial values can also be specified for both species-level and community-level parameters. As with single-species models, the initial values are generally inconsequential for nonspatial multi-species models. For spatial models, specifying good initial values can sometimes be important for decreasing run time to convergence.
+
+```{r}
+inits <- list(beta.comm = 0, alpha.comm = 0, beta = 0, alpha = 0, 
+              tau.sq.beta = 1, tau.sq.alpha = 1, 
+              z = apply(data.swiss.mhb$y, c(1, 2), max, na.rm = TRUE))
+# Rerun the model with inits and priors explicitly specified.
+out.msPGOcc <- msPGOcc(occ.formula = ~ scale(forest) + I(scale(forest)^2) + 
+                                       scale(elevation) + I(scale(elevation)^2),
+                       det.formula = ~ scale(date) + I(scale(date)^2) + 
+                                       scale(dur),
+                       data = data.swiss.mhb, 
+                       inits = inits,
+                       priors = priors,
+                       n.samples = 10000,
+                       n.thin = 5,
+                       verbose = TRUE,
+                       n.burn = 5000,
+                       n.chains = 3,
+                       n.report = 2000)
+```
+
+As with all model types in `spOccupancy`, we can use the `summary()` function to print a summary of the model results. For multi-species occupancy models, the argument `level` allows us to specify whether we want a summary for the community-level parameters only (`level = 'community'`), the species-level parameters only (`level = 'species'`), or both (`level = 'both'`).
+
+```{r}
+# Quick summary of the model results at the community level.
+summary(out.msPGOcc, level = 'community')
+```
+
+Looking at the community-level effects, we see occupancy on average has a significant negative quadratic relationship with both forest cover and elevation. This indicates that occupancy, on average, peaks at some value of elevation and forest cover and then subsequently decreases. This aligns with our exploratory data analysis (EDA) plots. Notice also substantial variation in the occupancy intercept and linear effects of forest cover and elevation across the community. We can look more closely at this variation by looking at the species-specific effects.  
+
+```{r}
+summary(out.msPGOcc, level = 'species')
+```
+
+Convergence and mixing of all model parameters appears to be adequate based on the Rhat values and ESS values. This can be further explored with traceplots.
+
+```{r}
+# Traceplot for community-level occurrence effects
+plot(out.msPGOcc, param = 'beta.comm', density = FALSE)
+```
+
+A perhaps more easily readable summary of the species-specific effects can be generated graphically using the `MCMCvis` package [@youngflesh2018mcmcvis].
+
+```{r}
+# Linear and quadratic effects of elevation
+MCMCplot(out.msPGOcc$beta.samples, ref_ovl = TRUE, params = 'elevation',
+         exact = FALSE, main = 'Elevation')
+```
+
+We see every species has a negative quadratic relationship with elevation, yet there is large variability in the linear effect. This indicates each species has some "optimal" elevation at which occupancy probability is the highest, but that this peak is variable across the different species. We can confirm this by using the `predict()` function to predict occupancy probability across a gradient of elevation (while holding forest cover at its mean value). 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Create a set of values across the range of observed elevation values
+elevation.pred.vals <- seq(min(data.swiss.mhb$occ.covs$elevation),
+                           max(data.swiss.mhb$occ.covs$elevation),
+                           length.out = 100)
+
+# Scale predicted values by mean and standard deviation used to fit the model
+elevation.pred.vals.scale <- (elevation.pred.vals - mean(data.swiss.mhb$occ.covs$elevation)) /
+                             sd(data.swiss.mhb$occ.covs$elevation)
+# Create design matrix (matrix to hold all the covariates, including the intercept)
+# Number of occurrence parameters for each species
+p.occ <- ncol(out.msPGOcc$beta.comm.samples)
+X.0 <- matrix(1, nrow = length(elevation.pred.vals), ncol = p.occ)
+(colnames(X.0) <- colnames(out.msPGOcc$beta.comm.samples))
+X.0[, 'scale(forest)'] <- 0 
+X.0[, 'I(scale(forest)^2)'] <- 0 
+X.0[, 'scale(elevation)'] <- elevation.pred.vals.scale
+X.0[, 'I(scale(elevation)^2)'] <- elevation.pred.vals.scale^2
+head(X.0)
+# Predict occupancy  
+out.pred <- predict(out.msPGOcc, X.0)
+str(out.pred)
+# Extract quantiles from the posterior samples
+psi.0.quants <- apply(out.pred$psi.0.samples, c(2, 3), quantile, 
+                      prob = c(0.025, 0.5, 0.975))
+# Species names
+sp.names <- dimnames(data.swiss.mhb$y)[[1]]
+# Number of species
+N <- length(sp.names)
+# Put in a data frame for ggplot
+psi.plot.dat <- data.frame(psi.med = c(psi.0.quants[2, , ]),
+                           psi.low = c(psi.0.quants[1, , ]),
+                           psi.high = c(psi.0.quants[3, , ]),
+                           elevation = rep(elevation.pred.vals, each = N),
+                           sp = rep(sp.names, length(elevation.pred.vals)))
+ggplot(psi.plot.dat, aes(x = elevation, y = psi.med)) +
+  geom_ribbon(aes(ymin = psi.low, ymax = psi.high), fill = 'grey70') +
+  geom_line() +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1)) +
+  facet_wrap(vars(sp)) +
+  labs(x = 'Elevation (m)', y = 'Occupancy Probability')
+```
+
+Our intuition regarding the relationship between elevation and the 10 different species is confirmed with the plots. We see a few very common species that occur at essentially all elevations with the exception of the highest elevation areas. We also see a fairly rare species, the Italian Sparrow, which only occurs at low probability at low elevation sites. These results make sense, as the Italian Sparrow only occurs along the Italian Peninsula. 
+
+## Spatial factor multi-species occupancy model
+
+Now, suppose our goal is to create distribution maps of the 10 species across Switzerland. Given results from previous analyses in Switzerland [@guelat2018effects], we have reason to believe a spatially-explicit model will provide more accurate predictions compared to a non-spatial model. Below we fit a spatially-explicit multi-species occupancy model using a spatial factor modeling approach, the details of which are discussed in @doser2023joint. As discussed in the multi-species occupancy modeling lecture, in this approach we model spatial autocorrelation for each species in the community by estimating a small set of "missing covariates" that are assigned a spatial structure, and then simultaneously estimating the species-specific effects of these "missing covariates" for each species. Here we choose to include 2 "missing covariates" (i.e., factors). Figuring out how to choose the number of factors to include can be a bit tricky. We provide a [set of guidelines on the package website for how to best make this decision](https://www.jeffdoser.com/files/spoccupancy-web/articles/modelconsiderations#choosing-the-number-of-latent-factors-in-spatial-factor-models). 
+
+Notice that below we make two decisions when running the model that are done solely to allow us to run this example in a short amount of time: (1) we use 5 neighbors in the NNGP approximation; and (2) we only run a single MCMC chain. For a complete analysis, we would run this model for three chains with 15 neighbors and assess convergence with the Rhat diagnostic. If we wanted to see if 5 neighbors were adequate to model the spatial autocorrelation, we could then compare a model using 5 neighbors with 15 neighbors using WAIC to see if there is any substantial improvement. 
+
+```{r}
+# Using two spatial factors ("missing covariates" to explain spatial autocorrelation)
+n.factors <- 2
+# Number of neighbors for NNGP
+n.neighbors <- 5
+# Number of chains
+n.chains <- 1
+```
+
+Just like we saw with the single-species spatial occupancy models, spatial multi-species occupancy models also require us to specify the number of MCMC samples in terms of a set of batches (`n.batch`) each with some pre-specified number of samples per batch (`batch.length`). Below we will run the model for 800 batches, each of length 25, which results in a total of `n.batch * batch.length` MCMC samples for our single chain (20,000 samples). We will discard 10,000 samples as burn-in and use a thinning rate of 10, which will result in a total of 1000 MCMC samples from our single chain.
+
+```{r}
+n.batch <- 800
+batch.length <- 25
+n.thin <- 10
+n.burn <- 10000
+```
+
+```{r}
+# Approx run time: < 3 min
+out.sfMsPGOcc <- sfMsPGOcc(occ.formula = ~ scale(forest) + I(scale(forest)^2) + 
+                                           scale(elevation) + I(scale(elevation)^2),
+                           det.formula = ~ scale(date) + I(scale(date)^2) + 
+                                           scale(dur),
+                           data = data.swiss.mhb, 
+                           n.batch = n.batch,
+                           batch.length = batch.length,
+                           n.neighbors = n.neighbors,
+                           n.thin = n.thin,
+                           verbose = TRUE,
+                           n.factors = n.factors,
+                           n.burn = n.burn,
+                           n.chains = n.chains,
+                           n.report = 200)
+```
+
+We can also explicitly set the priors distributions and initial values for all model parameters if desired. Note that a standard normal distribution is used for the factor loadings (i.e., the effects of the "missing covariates"), which is a requirement for fitting these models in `spOccupancy`. We do not run the below code chunk, but show how prior distributions and initial values can be specified and supplied as arguments to `sfMsPGOcc()`. 
+
+```{r, eval = FALSE}
+# Calculate distance matrix for prior on spatial decay parameters
+dist.mat <- dist(data.swiss.mhb$coords) 
+# Prior distributions
+priors <- list(beta.comm.normal = list(mean = 0, var = 2.72), 
+               alpha.comm.normal = list(mean = 0, var = 2.72),
+               tau.sq.beta.ig = list(a = 0.1, b = 0.1),
+               tau.sq.alpha.ig = list(a = 0.1, b = 0.1), 
+               phi.unif = list(a = 3 / max(dist.mat), b = 3 / min(dist.mat)))
+# Number of species
+N <- nrow(data.swiss.mhb$y)
+# Initial values for the factor loadings
+lambda.inits <- matrix(0, N, n.factors)
+diag(lambda.inits) <- 1
+inits <- list(beta.comm = 0, alpha.comm = 0, tau.sq.beta = 1, 
+              tau.sq.alpha = 1, beta = 0, alpha = 0, 
+              lambda = lambda.inits, 
+              z = apply(data.swiss.mhb$y, c(1, 2), max, na.rm = TRUE))
+# Not run
+out.sfMsPGOcc <- sfMsPGOcc(occ.formula = ~ scale(forest) + I(scale(forest)^2) + 
+                                           scale(elevation) + I(scale(elevation)^2),
+                           det.formula = ~ scale(date) + I(scale(date)^2) + 
+                                           scale(dur),
+                           data = data.swiss.mhb, 
+                           n.batch = n.batch, 
+                           priors = priors, 
+                           inits = inits,
+                           batch.length = batch.length,
+                           n.neighbors = n.neighbors,
+                           n.thin = n.thin,
+                           verbose = TRUE,
+                           n.factors = n.factors,
+                           n.burn = n.burn,
+                           n.chains = n.chains,
+                           n.report = 200)
+```
+
+We next compare the spatial model to the non-spatial model using WAIC to assess any improvements in model fit. Note that for multi-species model, we can calculate WAIC for the overall community of species, as well as for each individual species. We do this using the `by.sp` argument. 
+
+```{r}
+# Default is one overall WAIC for the community
+waicOcc(out.msPGOcc)
+waicOcc(out.sfMsPGOcc)
+# Set by.sp = TRUE for species-specific WAIC values
+waicOcc(out.msPGOcc, by.sp = TRUE)
+waicOcc(out.sfMsPGOcc, by.sp = TRUE)
+```
+
+Here we see the spatial model substantially outperforms the nonspatial model. When looking individually at each species, we see there is clear variation in the amount of improvement the spatial model provides. Most species appear to have substantial improvements in the spatial model, but the third, fourth, and fifth species (Coal Tit, Winter Wren, and European Robin) do not show any improvement. 
+
+Let's take a look at the estimated "factor loadings", which are the species-specific effects of the "missing covariates" (the spatial factors) in the model that are used to account for spatial autocorrelation. 
+
+```{r}
+MCMCplot(out.sfMsPGOcc$lambda.samples, ref_ovl = TRUE, main = 'Factor Loadings')
+```
+
+Notice the three values that are fixed, which is necessary to be able to estimate the model. We see a few species with significant positive effects of the first factor as well as the second factor. Notice that the three species that did not have improved model fit with the spatial model (Coal Tit, Winter Wren, European Robin) all have non-significant effects. This makes intuitive sense. The factor loadings represent the "effects" of the "missing covariates" that are used to explain any residual spatial autocorrelation. If the values of the factor loadings are all very close to 0, that means the "effect" of the factors is essentially 0, and so we would expect a model without the factors to show similar model performance for such species. When we generate predictions across Switzerland, we can look at the estimated factor loadings (species-specific effects) together with a map of the predicted spatial factor ("missing covariate") across the country to see if we can glean any sort of information from this assessment. We will return to this shortly.
+
+Now knowing our spatial model outperforms the top performing model let's do a posterior predictive check to assess the fit of our model.  
+
+```{r}
+# Perform a posterior predictive check to assess model fit.
+ppc.out <- ppcOcc(out.sfMsPGOcc, fit.stat = 'freeman-tukey', group = 1)
+# Calculate a Bayesian p-value as a simple measure of Goodness of Fit.
+summary(ppc.out)
+```
+
+Overall across all species, our Bayesian p-value is about 0.2, suggesting adequate model fit. However, when we look at the individual p-values for specific species, we see there are a few species with inadequate model fits. We can explore this further by looking more closely at the `ppc.out` object. The `ppc.out$fit.y` and `ppc.out$fit.y.rep` contains the estimated fit statistic (in this case the Freeman-Tukey statistic) calculated across all data points individually for each species and MCMC sample for the true data and the replicated data, respectively. Plotting these two components in a scatter plot can give insight into how well the model fits. In the below plot, the blue points are those for which the true data has a larger fit statistic value compared to the replicate data, while the red points are those where the value for the fitted data is larger than the true data.
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+str(ppc.out)
+# Generate a plot for all species
+ppc.df <- data.frame(fit = c(ppc.out$fit.y),
+                     fit.rep = c(ppc.out$fit.y.rep),
+                     color = 'lightskyblue1')
+ppc.df$color[ppc.df$fit.rep > ppc.df$fit] <- 'lightsalmon'
+plot(ppc.df$fit, ppc.df$fit.rep, bg = ppc.df$color, pch = 21,
+     ylab = 'Replicate Data Fit Statistic', xlab = 'True Data Fit Statistic', 
+     main = 'All species')
+lines(ppc.df$fit, ppc.df$fit, col = 'black')
+```
+
+The above figure makes the Bayesian p-value clear; it is the proportion of the points that fall above the one to one line (or alternatively, the proportion of points that are red). We could also modify the above code to generate a plot for one species at a time, which could help reveal the reasons behind the inadequate model fit for some species. We leave that to you to explore.
+
+Lastly, we will generate a distribution map for each of the 10 species across Switzerland. We do this by using the `predict()` function along with all the covariates used for the model. We read in the prediction object below. 
+
+```{r}
+# Predict occupancy probability and species richness across Switzerland
+# Load prediction objects (loads objects pred.swiss and coords.0)
+load("switzerlandPredData.rda")
+str(pred.swiss)
+```
+
+Prediction objects for multi-species models in `spOccupancy` can be quite large, particularly when predicting across a large number of locations (in this case 42,275). Here we will subset the complete grid of 1x1km points across Switzerland to predict at 8000 random locations across the country.  
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Set seed so we get the same values.
+set.seed(1000)
+# Get the indices for the new locations (remove the locations where we have data)
+new.site.indx <- which(is.na(match(do.call("paste", as.data.frame(coords.0)), 
+                       do.call("paste", as.data.frame(data.swiss.mhb$coords)))))
+pred.indx <- sample(new.site.indx, 8000, replace = FALSE)
+# Subset the prediction objects
+pred.swiss <- pred.swiss[pred.indx, ]
+coords.0 <- coords.0[pred.indx, ]
+# Look to see how our points are distributed
+plot(coords.0, pch = 19)
+# Standardize elevation and forest prediction values by values used to fit model
+elevation.0 <- (pred.swiss[, 'elevation'] - mean(data.swiss.mhb$occ.covs$elevation)) / 
+                sd(data.swiss.mhb$occ.covs$elevation)
+forest.0 <- (pred.swiss[, 'forest'] - mean(data.swiss.mhb$occ.covs$forest)) / 
+             sd(data.swiss.mhb$occ.covs$forest)
+# Create prediction design matrix
+X.0 <- cbind(1, forest.0, forest.0^2, elevation.0, elevation.0^2)
+(colnames(X.0) <- colnames(out.sfMsPGOcc$beta.comm.samples))
+# Predict at new locations
+out.pred <- predict(out.sfMsPGOcc, X.0, coords.0)
+str(out.pred)
+```
+
+The `psi.0.samples` component contains the posterior MCMC samples of occupancy probability for each species across the 8000 locations. Below is some code to generate a very basic species distribution map for each species. 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Mean occupancy probabilities for each species
+psi.0.means <- apply(out.pred$psi.0.samples, c(2, 3), mean)
+# Number of species
+N <- nrow(psi.0.means)
+# Number of prediction locations
+J.0 <- ncol(psi.0.means)
+plot.df <- data.frame(psi.mean = c(psi.0.means), 
+                      x = rep(coords.0[, 1], each = N),
+                      y = rep(coords.0[, 2], each = N),
+                      species = rep(sp.names, times = J.0))
+pred.sf <- st_as_sf(plot.df, coords = c('x', 'y'))
+ggplot() +
+  geom_sf(data = pred.sf, aes(color = psi.mean), size = 0.75) +
+  scale_color_viridis_c() +
+  theme_bw(base_size = 12) +
+  facet_wrap(vars(species)) + 
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), 
+	legend.position = c(0.75, 0.15)) +
+  labs(x = "Longitude", y = "Latitude", color = 'Mean Occupancy')
+
+```
+
+In addition to generating species distribution maps for each species, we can also generate maps of community-level summaries. Below we generate a map of species richness, where we first calculate species richness for each MCMC sample by summing the estimated latent occupancy values for each species at each site.
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Calculate species richness as a derived-quantity of the latent occupancy 
+# values for each species
+rich.samples <- apply(out.pred$z.0.samples, c(1, 3), sum)
+# Mean species richness
+rich.means <- apply(rich.samples, 2, mean)
+# Standard deviation species richness
+rich.sds <- apply(rich.samples, 2, sd)
+# Create prediction map ---------------
+plot.df <- data.frame(rich.mean = rich.means,
+                      rich.sd = rich.sds,
+                      x = coords.0[, 1], 
+                      y = coords.0[, 2])
+pred.sf <- st_as_sf(plot.df, coords = c('x', 'y'))
+rich.mean.plot <- ggplot() +
+  geom_sf(data = pred.sf, aes(color = rich.mean), size = 0.75) +
+  scale_color_viridis_c() +
+  theme_bw(base_size = 15) +
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(x = "Longitude", y = "Latitude", color = 'Richness Mean')
+
+rich.sd.plot <- ggplot() +
+  geom_sf(data = pred.sf, aes(color = rich.sd), size = 0.75) +
+  scale_color_viridis_c() +
+  theme_bw(base_size = 15) +
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(x = "Longitude", y = "Latitude", fill = "")
+rich.mean.plot
+rich.sd.plot
+```
+
+The last two plots we create plot the two spatial factors (or the "missing covariates") across the predicted locations. Generating maps of these factors, and looking at the estimated species-specific effects of these factors, can give some insight as to the drivers of any residual spatial autocorrelation across the different species. 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Means of first spatial factor 
+w.1.means <- apply(out.pred$w.0.samples[, 1, ], 2, mean)
+# Means of second spatial factor
+w.2.means <- apply(out.pred$w.0.samples[, 2, ], 2, mean)
+plot.df <- data.frame(w.1.mean = w.1.means,
+                      w.2.mean = w.2.means,
+                      x = coords.0[, 1], 
+                      y = coords.0[, 2])
+pred.sf <- st_as_sf(plot.df, coords = c('x', 'y'))
+w.1.plot <- ggplot() +
+  geom_sf(data = pred.sf, aes(color = w.1.mean), size = 0.75) +
+  scale_color_gradient2(midpoint = 0, low = '#B2182B', mid = 'white', high = '#2166AC',
+                        na.value = NA) +
+  theme_bw(base_size = 15) +
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(x = "Longitude", y = "Latitude", color = '', title = 'First Spatial Factor')
+w.2.plot <- ggplot() +
+  geom_sf(data = pred.sf, aes(color = w.2.mean), size = 0.75) +
+  scale_color_gradient2(midpoint = 0, low = '#B2182B', mid = 'white', high = '#2166AC',
+                        na.value = NA) +
+  theme_bw(base_size = 15) +
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(x = "Longitude", y = "Latitude", color = '', title = 'Second Spatial Factor')
+w.1.plot
+w.2.plot
+```
+
+# References {-}

@@ -1,1 +1,8 @@
 compile
+.Rproj.user
+exercises/exercise-3/
+exercises/exercise-1/compile
+exercises/exercise-2/exercise-2_cache/
+exercises/exercise-2/exercise-2_files/
+exercises/exercise-2/compile
+exercises/exercise-2/scratch.R
