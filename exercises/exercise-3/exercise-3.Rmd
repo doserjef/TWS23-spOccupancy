@@ -1,0 +1,299 @@
+---
+title: "Exercise 3: Trends in Wood Thrush occupancy across the Eastern US"
+author: "Jeffrey W. Doser and Elise F. Zipkin"
+date: "November 9, 2023"
+output: html_document
+bibliography: [references.bib]
+biblio-style: apalike
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA, cache = TRUE)
+```
+
+\newcommand{\bm}{\boldsymbol}
+
+## Introduction
+
+In this exercise, our goal is to quantify trends in the Wood Thrush from 2000-2009 across the eastern US. These data come from the USGS Breeding Bird Survey [@pardieck2020north]. We will compare a variety of non-spatial and spatial models. Note that the data set used here is just a small subset of the BBS data that are available from 2000-2009 in this region.   
+
+We first load `spOccupancy` as well as a few other packages we will use for summarizing model output and generating visualizations. We also set the seed so we can all get the same exact results.
+
+```{r}
+set.seed(100)
+library(spOccupancy)
+library(MCMCvis)
+library(sf)
+library(ggplot2)
+library(maps)
+library(sf)
+# If not using the RStudio project, set working directory to the exercise-3 directory 
+# directory.
+```
+
+## Data prep and exploratory data analysis
+
+The data are stored in an R data file object called `wood-thrush-bbs-data.rda`. We load this object below, which reads in a list called `data.WOTH`.
+
+```{r}
+load("wood-thrush-bbs-data.rda")
+str(data.WOTH)
+```
+
+The data object `data.WOTH` is stored in the exact format required for fitting single-species occupancy models in `spOccupancy`. The same four components are specified as we have seen for single-species and multi-species models, although the format is slightly different due to the additional temporal dimension. The list is comprised of four objects: 
+
+1. `y`: the detection-nondetection data. This is a three-dimensional, array of the detection-nondetection data where the first dimension corresponds to sites, the second dimension corresponds to seasons (primary time periods), and the third dimension corresponds to replicates within season (secondary time periods). note that for imbalanced data sets where each site may not have the same number of replicates within a season (or may not be sampled in each season), `NA` values should be placed in those site/season/replicate combinations without any data.
+2. `occ.covs`: the covariates for use in the occupancy portion of the model. This is a list, where each list element is a different occupancy covariate. For multi-season models, occupancy covariates can be site level or site/season level. Site-level covariates are specified as a vector of length $J$ (the number of sites), while site/season level covariates are specified as a matrix with rows corresponding to sites and columns corresonding to season (primary time period). Here we include four covariates: (1) the specific survey year, which we will use to estimate an occupancy trend; (2) a categorical variable of Bird Conservation Region; (3) maximum temperature; and (4) a site-level indicator, which we will use to specify an unstructured site-level random effect. Note that even though the `years` covariate does not vary by site, we specify it as a site x season matrix. This is how any variables that vary only by season need to be included. 
+3. `det.covs`: the covariates for use in the detection portion of the model. This is similarly a list of variables, with each list element corresponding to an individual variable. In addition to site-level and/or site/survey level variables, detection covariates can also be observational-level (i.e., they vary by each site/season/replicate). Observation-level covariates are specified as a three-dimensional array with dimensions of site, season, and replicate (analogous to `y`). 
+4. `coords`: the spatial coordinates of the sites. This is a matrix with rows corresponding to sites and two columns corresponding to the easting and northing coordinates of each given location. Note that `spOccupancy` assumes the coordinates are in a projected coordinate system (i.e., not latitude/longitude). The `coords` component is only required for spatially-explicit models in `spOccupancy`.
+
+First we generate a couple of exploratory data analysis (EDA) plots to get a sense of how occupancy probability is changing over time, and how common the Wood Thrush is across the region. First we plot the trend in naive occurrence probability over time. 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# Mean naive occurrence probability each year
+y.naive.means <- apply(data.WOTH$y, 2, mean, na.rm = TRUE)
+# Years in the data set
+years <- 2000:2009
+plot(years, y.naive.means, xlab = "Year", 
+     ylab = "Naive Occurrence Probability", pch = 19)
+```
+
+We see what appears to be a modest decline in occurrence probability from about 0.46 to 0.42 from 2000-2009. Next we create a map of the survey locations and show the number of times Wood Thrush was detected at each site. Note that here we have equal sampling across all sites (i.e., each site was surveyed all 10 years).
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+my.proj <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=km +no_defs"
+coords.sf <- st_as_sf(as.data.frame(data.WOTH$coords),
+                      coords = c('X', 'Y'), 
+                      crs = my.proj)
+# Total number of years each site was sampled
+coords.sf$y.sums <- apply(apply(data.WOTH$y, c(1, 2), max), 1, sum) 
+# Get map of the eastern US
+usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE))
+usa.bbox <- st_bbox(usa)
+usa.bbox[1] <- -100
+usa.bbox <- as.vector(usa.bbox)
+sf_use_s2(FALSE)
+east.us <- st_crop(st_make_valid(usa), xmin = usa.bbox[1], ymin = usa.bbox[2],
+                   xmax = usa.bbox[3], ymax = usa.bbox[4])
+east.us <- east.us %>%
+  st_transform(st_crs(coords.sf))
+ggplot() + 
+  geom_sf(data = east.us, alpha = 0, col = 'black') +
+  geom_sf(data = coords.sf, aes(col = y.sums)) + 
+  scale_color_viridis_c() +
+  theme_bw() + 
+  labs(col = '# of years\ndetected')
+```
+
+We see the Wood Thrush is typically detected in the most eastern part of the US, while it is more rarely detected in the Midwest, if at all.
+
+## Fitting multi-season occupancy models
+
+The function `tPGOcc()` fits non-spatial multi-season occupancy models in `spOccupancy()`, while the function `stPGOcc()` fits spatial multi-season occupancy models. In this exercise we will fit and compare four candidate models, which differ in how they account for spatial and/or temporal autocorrelation (if at all).
+
+All of the four candidate models will include a linear trend parameter on occupancy probability (which here is our main interest) as well as linear and quadratic effects of average maximum temperature at the site from 1981-2010. Our model for detection probability will include linear and quadratic effects of the day of the survey, linear and quadratic effects of the year of the survey, and linear and quadratic effects of the survey replicate.
+
+Both `tPGOcc()` and `stPGOcc()` require specifying the number of batches (`n.batch`) and how many MCMC samples are in each batch (`batch.length`), which is the same approach we have seen for spatial single-species and multi-species occupancy models. Note that unlike other nonspatial models in `spOccupancy`, `tPGOcc()` requires this specification (instead of just using the `n.samples` argument) because one of the parameters associated with the AR(1) covariance matrix (the temporal correlation parameter `rho`) is estimated inefficiently and thus highly benefits from the "batch" specification. Priors and initial values are again specified in the `priors` and `inits` arguments for both `tPGOcc()` and `stPGOcc()`, which can be explored using the manual pages for both functions. Throughout this exercise, we will simply use the default values.
+
+In both functions, the `ar1` argument takes a logical value that specifies whether an AR(1) temporal random effect is included in the model. Here we will set this to `FALSE` in all of our candidate models, and rather will explore the use of an unstructured temporal random effect.
+
+### Model 1: no site and/or season-level random effects
+
+Our first model does not include any site-level or season-level random effects, and is thus the simplest of the models we will fit. One could argue that this model has a fatal flaw in that we are not explicitly acknowledging the correlation between the occupancy probabilities at each year at a given site. This is often referred to as pseudoreplication, and if ignored (as we do in this model) can lead to overly precise parameter estimates.
+
+Here is the complete statistical model that we fit below and save in the `out.1` model object.
+
+\begin{aligned}
+  y_{j, t, k} &\sim \text{Bernoulli}(p_{j, t, k} \cdot z_{j, t}) \\
+  \text{logit}(p_{j, t, k}) &= \alpha_0 + \alpha_1 \cdot \text{DAY}_{j, t} + \alpha_2 \cdot \text{Day}^2_{j, t} + \alpha_3 \cdot \text{YEAR}_t + \alpha_4 \cdot \text{YEAR}^2_t + \alpha_5 \cdot \text{REP}_k + \alpha_6 \cdot \text{REP}^2_k \\
+  z_{j, t} &\sim \text{Bernoulli}(\psi_{j, t}) \\
+  \text{logit}(\psi_{j, t}) &= \beta_0 + \beta_1 \cdot \text{YEAR}_t + \beta_2 \cdot \text{TMAX}_j + \beta_3 \cdot \text{TMAX}^2_j \\
+  \alpha_r &\sim \text{Normal}(0, 2.72) \\
+  \beta_r &\sim \text{Normal}(0, 2.72) \\
+\end{aligned}
+
+```{r}
+# Approx run time: 2 min
+out.1 <- tPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2), 
+                det.formula = ~ scale(day) + I(scale(day)^2) + 
+                    scale(year.det) + I(scale(year.det)^2) + 
+                    scale(rep.val) + I(scale(rep.val)^2), 
+                data = data.WOTH,
+                ar1 = FALSE, 
+                n.batch = 200,
+                batch.length = 25,
+                n.burn = 2000,
+                n.thin = 3,
+                n.chains = 3,
+                n.report = 50)
+summary(out.1)
+```
+
+Convergence looks adequate for all model parameters. As we expect given our EDA plots, we see a negative trend estimate for occupancy probability, indicating a potential decline in occupancy probability over this time period. Note that looking at the 95% credible interval, this is not "significant" (i.e., the 95% credible interval overlaps 0). Instead of simply using the 95% credible interval as an indicator of significance, we can look at the probability the effect is less than 0. 
+
+```{r}
+# Use MCMCvis to extract the MCMC samples for the year effect
+year.samples <- MCMCchains(out.1$beta.samples, params = 'year', exact = FALSE)
+# Probability the year effect is less than 0
+mean(year.samples < 0)
+```
+
+Here we see there is a `r round(mean(year.samples < 0), 2)` probability of a decline in occupancy probability, indicating fairly substantial support for a decline.
+
+## Model 2: Random year effect and random BCR effect
+
+In our second model, we include a random unstructured year effect to account for potential non-linearity in the occupancy probability trend over the ten year period. When including both a linear trend parameter and a year level random effect, the linear trend will estimate any overall linear pattern in occupancy probability, while the random year effect will effectively account for any non-linear variability in occupancy probability over time that is not explained by the simple linear year effect.  The complete statistical model is shown below.
+
+\begin{aligned}
+  y_{j, t, k} &\sim \text{Bernoulli}(p_{j, t, k} \cdot z_{j, t}) \\
+  \text{logit}(p_{j, t, k}) &= \alpha_0 + \alpha_1 \cdot \text{DAY}_{j, t} + \alpha_2 \cdot \text{Day}^2_{j, t} + \alpha_3 \cdot \text{YEAR}_t + \alpha_4 \cdot \text{YEAR}^2_t + \alpha_5 \cdot \text{REP}_k + \alpha_6 \cdot \text{REP}^2_k \\
+  z_{j, t} &\sim \text{Bernoulli}(\psi_{j, t}) \\
+  \text{logit}(\psi_{j, t}) &= \beta_0 + \beta_1 \cdot \text{YEAR}_t + \beta_2 \cdot \text{TMAX}_j + \beta_3 \cdot \text{TMAX}^2_j + \eta_t\\
+  \eta_t &\sim \text{Normal}(0, \sigma^2_T) \\
+  \alpha_r &\sim \text{Normal}(0, 2.72) \\
+  \beta_r &\sim \text{Normal}(0, 2.72) \\
+  \sigma^2_T &\sim \text{Inverse Gamma}(0.1, 0.1) \\
+\end{aligned}
+
+```{r}
+# Approx run time: 2.5 min
+out.2 <- tPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2) + (1 | years), 
+                det.formula = ~ scale(day) + I(scale(day)^2) + 
+                                scale(year.det) + I(scale(year.det)^2) + 
+                                scale(rep.val) + I(scale(rep.val)^2), 
+                data = data.WOTH,
+                ar1 = FALSE, 
+                n.batch = 200,
+                batch.length = 25,
+                n.burn = 2000,
+                n.thin = 3,
+                n.chains = 3,
+                n.report = 50)
+summary(out.2)
+```
+
+The random effect variance for year on occurrence probability is fairly close to 0, potentially indicating only minimal non-linear variation in the occupancy trend. We can look at this further by exploring the random effect values themselves. The random year effects can be extracted from the `beta.star.samples` component of the model object. We plot the means of these effects in a simple plot below. 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+str(out.2$beta.star.samples)
+random.year.means <- apply(out.2$beta.star.samples, 2, mean)
+years <- 2000:2009
+plot(years, random.year.means, xlab = 'Year', ylab = 'Random year effect',
+     pch = 19)
+abline(h = 0)
+```
+
+Here we see the random year effect values are quite close to 0 (i.e., look at the magnitude of the y-axis). This lends pretty substantial support for the linear trend only model. Let's compare the two models with WAIC.
+
+```{r}
+waicOcc(out.1)
+waicOcc(out.2)
+```
+
+In line with what we saw with the low random effect variance and small magnitude values of the random year effects themselves, the WAIC is smaller for the simpler, linear effect only model. Given this result, our final two models will not include any random year effect.
+
+## Models 3 and 4: incorporating random site-level effects 
+
+Our third and fourth model showcase the two different approaches for including a random site-level effect in multi-season models in `spOccupancy`: (1) using an unstructured site-level effect; and (2) using a spatial random effect with an NNGP. Model 3 uses an unstructured random effect, while Model 4 uses a spatial random effect. Note for Model 4, we use an NNGP with 5 neighbors as we have found in previous analyses using 5 neighbors with the BBS data set in this region performs very similarly to a model with 15 neighbors, while being much faster. We also only run Model 4 for a single chain to speed things up a bit. Note for a complete analysis we would run this model for three chains.
+
+**Model 3**
+
+\begin{aligned}
+  y_{j, t, k} &\sim \text{Bernoulli}(p_{j, t, k} \cdot z_{j, t}) \\
+  \text{logit}(p_{j, t, k}) &= \alpha_0 + \alpha_1 \cdot \text{DAY}_{j, t} + \alpha_2 \cdot \text{Day}^2_{j, t} + \alpha_3 \cdot \text{YEAR}_t + \alpha_4 \cdot \text{YEAR}^2_t + \alpha_5 \cdot \text{REP}_k + \alpha_6 \cdot \text{REP}^2_k \\
+  z_{j, t} &\sim \text{Bernoulli}(\psi_{j, t}) \\
+  \text{logit}(\psi_{j, t}) &= \beta_0 + \beta_1 \cdot \text{YEAR}_t + \beta_2 \cdot \text{TMAX}_j + \beta_3 \cdot \text{TMAX}^2_j + \text{w}_j\\
+  \text{w}_j &\sim \text{Normal}(0, \sigma^2) \\
+  \alpha_r &\sim \text{Normal}(0, 2.72) \\
+  \beta_r &\sim \text{Normal}(0, 2.72) \\
+  \sigma^2 &\sim \text{Inverse Gamma}(0.1, 0.1) \\
+\end{aligned}
+
+```{r}
+# Approx run time: < 3 min
+out.3 <- tPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2) + (1 | site), 
+                det.formula = ~ scale(day) + I(scale(day)^2) + 
+                                scale(year.det) + I(scale(year.det)^2) + 
+                                scale(rep.val) + I(scale(rep.val)^2), 
+                data = data.WOTH,
+                ar1 = FALSE, 
+                n.batch = 200,
+                batch.length = 25,
+                n.burn = 2000,
+                n.thin = 3,
+                n.chains = 3,
+                n.report = 50)
+summary(out.3)
+plot(out.3, 'beta', density = FALSE)
+```
+
+**Model 4**
+
+\begin{aligned}
+  y_{j, t, k} &\sim \text{Bernoulli}(p_{j, t, k} \cdot z_{j, t}) \\
+  \text{logit}(p_{j, t, k}) &= \alpha_0 + \alpha_1 \cdot \text{DAY}_{j, t} + \alpha_2 \cdot \text{Day}^2_{j, t} + \alpha_3 \cdot \text{YEAR}_t + \alpha_4 \cdot \text{YEAR}^2_t + \alpha_5 \cdot \text{REP}_k + \alpha_6 \cdot \text{REP}^2_k \\
+  z_{j, t} &\sim \text{Bernoulli}(\psi_{j, t}) \\
+  \text{logit}(\psi_{j, t}) &= \beta_0 + \beta_1 \cdot \text{YEAR}_t + \beta_2 \cdot \text{TMAX}_j + \beta_3 \cdot \text{TMAX}^2_j + \text{w}_j\\
+  \text{w}_j &\sim \text{NNGP}(0, \sigma^2) \\
+  \alpha_r &\sim \text{Normal}(0, 2.72) \\
+  \beta_r &\sim \text{Normal}(0, 2.72) \\
+  \phi &\sim \text{Uniform}(a_{\phi}, b_{\phi}) \\
+  \sigma^2 &\sim \text{Inverse-Gamma}(a_{\sigma^2}, b_{\sigma^2}) 
+\end{aligned}
+
+```{r}
+# Approx run time: < 3 min
+out.4 <- stPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2), 
+                 det.formula = ~ scale(day) + I(scale(day)^2) + 
+                                 scale(year.det) + I(scale(year.det)^2) + 
+                                 scale(rep.val) + I(scale(rep.val)^2), 
+                 data = data.WOTH,
+                 n.neighbors = 5,
+                 ar1 = FALSE, 
+                 n.batch = 600,
+                 batch.length = 25,
+                 n.burn = 9000,
+                 n.thin = 2,
+                 n.chains = 1,
+                 n.report = 100)
+summary(out.4)
+plot(out.4, 'beta', density = FALSE)
+```
+
+Note both models have fairly slow mixing of some of the model parameters, and so for a complete analysis we would want to run the models for longer to ensure convergence and adequate mixing of the parameters (i.e., all Rhat values < 1 and ESS values above 200 or so). We now compare Models 3 and 4 with Model 1 using WAIC
+
+```{r}
+# No site-level random effect
+waicOcc(out.1)
+# Unstructured site-level random effect
+waicOcc(out.3)
+# Spatial random effect
+waicOcc(out.4)
+```
+
+Here we see both Models 3 and 4 substantially outperform Model 1 according to WAIC, indicating a large amount of spatial variation in occupancy probability that is not explained by maximum temperature alone. We also see the spatial model (Model 4) outperforms the model with an unstructured random effect, although to a much lesser extent than the improvement in model performance compared to Model 1. Note that we would likely see an even larger improvement of Model 4 over Model 3 when assessing model performance using cross-validation, which can be done using the `k.fold` argument in `stPGOcc()` and `tPGOcc()`. This is because the spatial model assigns a spatial structure to the site-level random effects, which can be used to improve predictions at locations that were not used when fitting the model (as is done in cross-validation or prediction). When estimating unstructured site-level random effects, there is no information shared across the different sites, and so when going to predict at sites not used to fit the model, there will be no available information to estimate the random effect at that site, and so it will effectively be estimated at 0. We leave this to you to explore if so desired.
+
+We end this exercise by generating a simple plot of the average occupancy probability across all sites in each year using our top performing model (i.e., Model 4). 
+
+```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+# First get MCMC samples for average occupancy prob in each year
+psi.means.samples <- apply(out.4$psi.samples, c(1, 3), mean)
+# Then get the quantiles for these yearly averages
+psi.quants.by.year <- apply(psi.means.samples, 2,
+                            quantile, probs = c(0.025, 0.5, 0.975))
+plot.df <- data.frame(psi.med = psi.quants.by.year[2, ],
+                      psi.low = psi.quants.by.year[1, ],
+                      psi.high = psi.quants.by.year[3, ], 
+                      years = years)
+ggplot(data = plot.df, aes(x = years, y = psi.med)) + 
+  geom_point(size = 3) + 
+  geom_line() +
+  geom_segment(aes(x = years, y = psi.low, xend = years, yend = psi.high), 
+               lineend = 'butt', linewidth = 0.8) + 
+  theme_bw() + 
+  labs(x = 'Year', y = 'Occupancy probability') + 
+  scale_x_continuous(breaks = c(2000, 2003, 2006, 2009), 
+                     labels = c(2000, 2003, 2006, 2009))
+```
+
+# References {-}
