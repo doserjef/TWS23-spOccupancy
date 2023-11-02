@@ -395,9 +395,8 @@ results.</p>
 <pre class="r"><code>set.seed(100)
 library(spOccupancy)
 library(MCMCvis)
-library(sf)</code></pre>
-<pre><code>Linking to GEOS 3.10.2, GDAL 3.4.1, PROJ 8.2.1; sf_use_s2() is TRUE</code></pre>
-<pre class="r"><code>library(ggplot2)
+library(sf)
+library(ggplot2)
 library(maps)
 library(sf)
 # If not using the RStudio project, set working directory to the exercise-3 directory 
@@ -437,7 +436,7 @@ The list is comprised of four objects:</p>
 three-dimensional, array of the detection-nondetection data where the
 first dimension corresponds to sites, the second dimension corresponds
 to seasons (primary time periods), and the third dimension corresponds
-to replicates within season (secondary time periods). note that for
+to replicates within season (secondary time periods). Note that for
 imbalanced data sets where each site may not have the same number of
 replicates within a season (or may not be sampled in each season),
 <code>NA</code> values should be placed in those site/season/replicate
@@ -500,15 +499,10 @@ usa &lt;- st_as_sf(maps::map(&quot;state&quot;, fill = TRUE, plot = FALSE))
 usa.bbox &lt;- st_bbox(usa)
 usa.bbox[1] &lt;- -100
 usa.bbox &lt;- as.vector(usa.bbox)
-sf_use_s2(FALSE)</code></pre>
-<pre><code>Spherical geometry (s2) switched off</code></pre>
-<pre class="r"><code>east.us &lt;- st_crop(st_make_valid(usa), xmin = usa.bbox[1], ymin = usa.bbox[2],
-                   xmax = usa.bbox[3], ymax = usa.bbox[4])</code></pre>
-<pre><code>although coordinates are longitude/latitude, st_intersection assumes that they
-are planar</code></pre>
-<pre><code>Warning: attribute variables are assumed to be spatially constant throughout
-all geometries</code></pre>
-<pre class="r"><code>east.us &lt;- east.us %&gt;%
+sf_use_s2(FALSE)
+east.us &lt;- st_crop(st_make_valid(usa), xmin = usa.bbox[1], ymin = usa.bbox[2],
+                   xmax = usa.bbox[3], ymax = usa.bbox[4])
+east.us &lt;- east.us %&gt;%
   st_transform(st_crs(coords.sf))
 ggplot() + 
   geom_sf(data = east.us, alpha = 0, col = &#39;black&#39;) +
@@ -582,8 +576,8 @@ the <code>out.1</code> model object.</p>
 <pre class="r"><code># Approx run time: 2 min
 out.1 &lt;- tPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2), 
                 det.formula = ~ scale(day) + I(scale(day)^2) + 
-                    scale(year.det) + I(scale(year.det)^2) + 
-                    scale(rep.val) + I(scale(rep.val)^2), 
+                                scale(year.det) + I(scale(year.det)^2) + 
+                                scale(rep.val) + I(scale(rep.val)^2), 
                 data = data.WOTH,
                 ar1 = FALSE, 
                 n.batch = 200,
@@ -666,7 +660,7 @@ Burn-in: 2000
 Thinning Rate: 3
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 2.3806
+Run Time (min): 2.0177
 
 Occurrence (logit scale): 
                     Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -697,12 +691,13 @@ year.samples &lt;- MCMCchains(out.1$beta.samples, params = &#39;year&#39;, exact
 # Probability the year effect is less than 0
 mean(year.samples &lt; 0)</code></pre>
 <pre><code>[1] 0.9596667</code></pre>
-<p>Here we see there is a 0.96 probability of a decline in occupancy
-probability, indicating fairly substantial support for a decline.</p>
+<p>Here we see there is a 0.96 probability of a negative effect in
+occupancy probability, indicating fairly substantial support for a
+decline.</p>
 </div>
 </div>
-<div id="model-2-random-year-effect-and-random-bcr-effect" class="section level2">
-<h2>Model 2: Random year effect and random BCR effect</h2>
+<div id="model-2-random-year-effect" class="section level2">
+<h2>Model 2: Random year effect</h2>
 <p>In our second model, we include a random unstructured year effect to
 account for potential non-linearity in the occupancy probability trend
 over the ten year period. When including both a linear trend parameter
@@ -816,7 +811,7 @@ Burn-in: 2000
 Thinning Rate: 3
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 2.2711
+Run Time (min): 2.0282
 
 Occurrence (logit scale): 
                     Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -992,7 +987,7 @@ Burn-in: 2000
 Thinning Rate: 3
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 2.7829
+Run Time (min): 2.531
 
 Occurrence (logit scale): 
                     Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -1132,7 +1127,7 @@ Burn-in: 9000
 Thinning Rate: 2
 Number of Chains: 1
 Total Posterior Samples: 3000
-Run Time (min): 2.8711
+Run Time (min): 2.4697
 
 Occurrence (logit scale): 
                     Mean     SD    2.5%     50%   97.5% Rhat  ESS

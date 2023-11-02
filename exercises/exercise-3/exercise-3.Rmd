@@ -19,7 +19,7 @@ In this exercise, our goal is to quantify trends in the Wood Thrush from 2000-20
 
 We first load `spOccupancy` as well as a few other packages we will use for summarizing model output and generating visualizations. We also set the seed so we can all get the same exact results.
 
-```{r}
+```{r, message = FALSE}
 set.seed(100)
 library(spOccupancy)
 library(MCMCvis)
@@ -42,7 +42,7 @@ str(data.WOTH)
 
 The data object `data.WOTH` is stored in the exact format required for fitting single-species occupancy models in `spOccupancy`. The same four components are specified as we have seen for single-species and multi-species models, although the format is slightly different due to the additional temporal dimension. The list is comprised of four objects: 
 
-1. `y`: the detection-nondetection data. This is a three-dimensional, array of the detection-nondetection data where the first dimension corresponds to sites, the second dimension corresponds to seasons (primary time periods), and the third dimension corresponds to replicates within season (secondary time periods). note that for imbalanced data sets where each site may not have the same number of replicates within a season (or may not be sampled in each season), `NA` values should be placed in those site/season/replicate combinations without any data.
+1. `y`: the detection-nondetection data. This is a three-dimensional, array of the detection-nondetection data where the first dimension corresponds to sites, the second dimension corresponds to seasons (primary time periods), and the third dimension corresponds to replicates within season (secondary time periods). Note that for imbalanced data sets where each site may not have the same number of replicates within a season (or may not be sampled in each season), `NA` values should be placed in those site/season/replicate combinations without any data.
 2. `occ.covs`: the covariates for use in the occupancy portion of the model. This is a list, where each list element is a different occupancy covariate. For multi-season models, occupancy covariates can be site level or site/season level. Site-level covariates are specified as a vector of length $J$ (the number of sites), while site/season level covariates are specified as a matrix with rows corresponding to sites and columns corresonding to season (primary time period). Here we include four covariates: (1) the specific survey year, which we will use to estimate an occupancy trend; (2) a categorical variable of Bird Conservation Region; (3) maximum temperature; and (4) a site-level indicator, which we will use to specify an unstructured site-level random effect. Note that even though the `years` covariate does not vary by site, we specify it as a site x season matrix. This is how any variables that vary only by season need to be included. 
 3. `det.covs`: the covariates for use in the detection portion of the model. This is similarly a list of variables, with each list element corresponding to an individual variable. In addition to site-level and/or site/survey level variables, detection covariates can also be observational-level (i.e., they vary by each site/season/replicate). Observation-level covariates are specified as a three-dimensional array with dimensions of site, season, and replicate (analogous to `y`). 
 4. `coords`: the spatial coordinates of the sites. This is a matrix with rows corresponding to sites and two columns corresponding to the easting and northing coordinates of each given location. Note that `spOccupancy` assumes the coordinates are in a projected coordinate system (i.e., not latitude/longitude). The `coords` component is only required for spatially-explicit models in `spOccupancy`.
@@ -60,7 +60,7 @@ plot(years, y.naive.means, xlab = "Year",
 
 We see what appears to be a modest decline in occurrence probability from about 0.46 to 0.42 from 2000-2009. Next we create a map of the survey locations and show the number of times Wood Thrush was detected at each site. Note that here we have equal sampling across all sites (i.e., each site was surveyed all 10 years).
 
-```{r, fig.fullwidth = TRUE, fig.align = 'center'}
+```{r, fig.fullwidth = TRUE, fig.align = 'center', message = FALSE, warning = FALSE}
 my.proj <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=km +no_defs"
 coords.sf <- st_as_sf(as.data.frame(data.WOTH$coords),
                       coords = c('X', 'Y'), 
@@ -116,8 +116,8 @@ Here is the complete statistical model that we fit below and save in the `out.1`
 # Approx run time: 2 min
 out.1 <- tPGOcc(occ.formula = ~ scale(years) + scale(tmax) + I(scale(tmax)^2), 
                 det.formula = ~ scale(day) + I(scale(day)^2) + 
-                    scale(year.det) + I(scale(year.det)^2) + 
-                    scale(rep.val) + I(scale(rep.val)^2), 
+                                scale(year.det) + I(scale(year.det)^2) + 
+                                scale(rep.val) + I(scale(rep.val)^2), 
                 data = data.WOTH,
                 ar1 = FALSE, 
                 n.batch = 200,
@@ -138,9 +138,9 @@ year.samples <- MCMCchains(out.1$beta.samples, params = 'year', exact = FALSE)
 mean(year.samples < 0)
 ```
 
-Here we see there is a `r round(mean(year.samples < 0), 2)` probability of a decline in occupancy probability, indicating fairly substantial support for a decline.
+Here we see there is a `r round(mean(year.samples < 0), 2)` probability of a negative effect in occupancy probability, indicating fairly substantial support for a decline.
 
-## Model 2: Random year effect and random BCR effect
+## Model 2: Random year effect
 
 In our second model, we include a random unstructured year effect to account for potential non-linearity in the occupancy probability trend over the ten year period. When including both a linear trend parameter and a year level random effect, the linear trend will estimate any overall linear pattern in occupancy probability, while the random year effect will effectively account for any non-linear variability in occupancy probability over time that is not explained by the simple linear year effect.  The complete statistical model is shown below.
 
