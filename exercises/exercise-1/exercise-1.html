@@ -404,9 +404,8 @@ results.</p>
 library(spOccupancy)
 library(MCMCvis)
 library(ggplot2)
-library(sf)</code></pre>
-<pre><code>Linking to GEOS 3.10.2, GDAL 3.4.1, PROJ 8.2.1; sf_use_s2() is TRUE</code></pre>
-<pre class="r"><code># If not using the RStudio project, set working directory to the exercise-1 directory 
+library(sf)
+# If not using the RStudio project, set working directory to the exercise-1 directory 
 # directory.</code></pre>
 </div>
 <div id="data-prep-and-exploratory-data-analysis" class="section level2">
@@ -620,7 +619,7 @@ Burn-in: 5000
 Thinning Rate: 5
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 0.0291
+Run Time (min): 0.0243
 
 Occurrence (logit scale): 
                   Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -741,7 +740,7 @@ Burn-in: 5000
 Thinning Rate: 5
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 0.0279
+Run Time (min): 0.024
 
 Occurrence (logit scale): 
                   Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -814,7 +813,7 @@ Burn-in: 5000
 Thinning Rate: 5
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 0.0281
+Run Time (min): 0.0236
 
 Occurrence (logit scale): 
                Mean     SD    2.5%     50%  97.5%   Rhat  ESS
@@ -895,10 +894,10 @@ k.fold.2 &lt;- PGOcc(occ.formula = ~ 1,
                   k.fold.only = TRUE)
 # Model with occupancy covariates
 k.fold.1$k.fold.deviance</code></pre>
-<pre><code>[1] 174.0887</code></pre>
+<pre><code>[1] 175.3307</code></pre>
 <pre class="r"><code># Model without occupancy covariates
 k.fold.2$k.fold.deviance</code></pre>
-<pre><code>[1] 181.9431</code></pre>
+<pre><code>[1] 180.8645</code></pre>
 <p><code>spOccupancy</code> uses model deviance as a model comparison
 metric when performing cross-validation, which is interpreted similarly
 to WAIC: smaller values indicate superior model predictive performance.
@@ -1369,7 +1368,7 @@ Burn-in: 10000
 Thinning Rate: 10
 Number of Chains: 3
 Total Posterior Samples: 3000
-Run Time (min): 0.687
+Run Time (min): 0.7555
 
 Occurrence (logit scale): 
                   Mean     SD    2.5%     50%   97.5%   Rhat  ESS
@@ -1482,10 +1481,10 @@ waicOcc(out.sp)</code></pre>
                      k.fold.only = TRUE)
 # Spatial
 k.fold.sp$k.fold.deviance</code></pre>
-<pre><code>[1] 173.9085</code></pre>
+<pre><code>[1] 174.6833</code></pre>
 <pre class="r"><code># Non-spatial
 k.fold.1$k.fold.deviance</code></pre>
-<pre><code>[1] 174.0887</code></pre>
+<pre><code>[1] 175.3307</code></pre>
 <p>Here we see very similar WAIC and model deviance values between the
 two models. Since there is no large difference between them, we would
 consider the non-spatial model our final model if using these data in a

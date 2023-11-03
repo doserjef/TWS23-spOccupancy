@@ -19,7 +19,7 @@ In this exercise, we will use single-species nonspatial and spatial occupancy mo
 
 We first load `spOccupancy` as well as a few other packages we will use for summarizing model output and generating visualizations. We also set the seed so we can all get the same exact results.
 
-```{r}
+```{r, message = FALSE}
 set.seed(100)
 library(spOccupancy)
 library(MCMCvis)
