@@ -28,7 +28,7 @@ can be installed from CRAN using `install.packages('spOccupancy')`. Note we will
 In the exercises, we will use additional R packages for exploratory data analysis and visualizations. To fully participate in the exercises, you will need to install the packages below if you do not have them. The code below can be run in R to only install those packages that don't currently exist on your system.
 
 ```{r, eval = FALSE}
-required.packages <- c('MCMCvis', 'ggplot2', 'pals', 'sf', 'maps', 'stars')
+required.packages <- c('MCMCvis', 'ggplot2', 'pals', 'sf', 'maps')
 new.packages <- required.packages[!(required.packages %in% installed.packages()[, 'Package'])]
 if (length(new.packages) > 0) {
   install.packages(new.packages)

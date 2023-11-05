@@ -26,7 +26,6 @@ library(MCMCvis)
 library(sf)
 library(ggplot2)
 library(maps)
-library(sf)
 # If not using the RStudio project, set working directory to the exercise-3 directory 
 # directory.
 ```
